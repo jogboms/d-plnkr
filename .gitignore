@@ -1,0 +1,7 @@
+### Zig template
+.zig-cache/
+zig-out/
+
+### IntelliJ template
+.idea/
+*.iml
