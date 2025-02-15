@@ -1,12 +1,13 @@
 const std = @import("std");
 const sqlite = @import("sqlite");
+const uuid = @import("uuid");
 
 const schemaVersion = 1;
 const configDirName = ".config";
 const configSubDirName = "d-plnkr";
 const dbName = "default.db";
 
-pub fn main() anyerror!void {
+pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.deinit() == .leak) {
         @panic("Leaks detected");
@@ -14,8 +15,47 @@ pub fn main() anyerror!void {
 
     const allocator = gpa.allocator();
 
+    const dbFilePath = try deriveDbFilePath(allocator);
+    const dbPath = try std.mem.Allocator.dupeZ(allocator, u8, dbFilePath);
+    defer {
+        allocator.free(dbFilePath);
+        allocator.free(dbPath);
+    }
+
+    var db = try sqlite.Db.init(.{
+        .mode = sqlite.Db.Mode{ .File = dbPath },
+        .open_flags = .{ .write = true, .create = true },
+        .threading_mode = .MultiThread,
+    });
+    defer db.deinit();
+
+    try setupSchema(&db);
+
+    // TODO: search command
+    {
+        // // TODO: parse from args
+        // const needle = "";
+        //
+        // var arena = std.heap.ArenaAllocator.init(allocator);
+        // defer arena.deinit();
+        //
+        // const links = try searchLinks(&db, arena.allocator(), needle);
+        // for (links) |link| {
+        //     std.log.debug("Link -> id: {s}, url: {s}", .{ link.id, link.url });
+        // }
+    }
+
+    // TODO: add command
+    {
+        // // TODO: parse from args
+        // const url = "appie://flutter-backstage";
+        // try addLink(&db, url);
+    }
+}
+
+fn deriveDbFilePath(allocator: std.mem.Allocator) ![]const u8 {
     const isProduction = try isEnabledFromEnv(allocator, "PROD");
-    const dbFilePath: []u8 = if (isProduction) block: {
+    return if (isProduction) block: {
         const homeDir = fromEnv(allocator, "HOME") catch @panic("Could not find $HOME environment variable");
         defer allocator.free(homeDir);
 
@@ -29,18 +69,9 @@ pub fn main() anyerror!void {
 
         break :block try std.fs.path.join(allocator, &[_][]const u8{ dbDir, dbName });
     } else try std.fs.path.join(allocator, &[_][]const u8{ ".", dbName });
-    defer allocator.free(dbFilePath);
+}
 
-    const dbPath = try std.mem.Allocator.dupeZ(allocator, u8, dbFilePath);
-    defer allocator.free(dbPath);
-
-    var db = try sqlite.Db.init(.{
-        .mode = sqlite.Db.Mode{ .File = dbPath },
-        .open_flags = .{ .write = true, .create = true },
-        .threading_mode = .MultiThread,
-    });
-    defer db.deinit();
-
+fn setupSchema(db: *sqlite.Db) !void {
     try db.exec("create table if not exists schema_version(version integer primary key)", .{}, .{});
 
     const versionRow = try db.one(usize, "select version from schema_version limit 1", .{}, .{});
@@ -51,9 +82,37 @@ pub fn main() anyerror!void {
     } else {
         try db.exec("insert into schema_version(version) values(?)", .{}, .{schemaVersion});
     }
+
+    try db.exec(
+        \\ create table if not exists links (
+        \\    id uuid primary key,
+        \\    url text not null,
+        \\    created_at timestamp default current_timestamp
+        \\ )
+    , .{}, .{});
 }
 
-fn isEnabledFromEnv(allocator: std.mem.Allocator, key: []const u8) anyerror!bool {
+const Link = struct {
+    id: []const u8,
+    url: []const u8,
+};
+
+fn searchLinks(db: *sqlite.Db, allocator: std.mem.Allocator, needle: []const u8) ![]Link {
+    var stmt = try db.prepare("select id, url from links where url like ?");
+    defer stmt.deinit();
+
+    const like = try std.fmt.allocPrint(allocator, "%{s}%", .{needle});
+    defer allocator.free(like);
+
+    return stmt.all(Link, allocator, .{}, .{like});
+}
+
+fn addLink(db: *sqlite.Db, url: []const u8) !void {
+    const id = uuid.v7.new();
+    try db.exec("insert into links(id, url) values(?, ?)", .{}, .{ @as([36]u8, uuid.urn.serialize(id)), url });
+}
+
+fn isEnabledFromEnv(allocator: std.mem.Allocator, key: []const u8) !bool {
     const value = fromEnv(allocator, key) catch |e| switch (e) {
         error.EnvironmentVariableNotFound => return false,
         else => std.debug.panic("Unhandle error: {any}", .{e}),
@@ -63,6 +122,6 @@ fn isEnabledFromEnv(allocator: std.mem.Allocator, key: []const u8) anyerror!bool
     return std.mem.eql(u8, value, "1");
 }
 
-fn fromEnv(allocator: std.mem.Allocator, key: []const u8) anyerror![]const u8 {
+fn fromEnv(allocator: std.mem.Allocator, key: []const u8) ![]const u8 {
     return try std.process.getEnvVarOwned(allocator, key);
 }

@@ -28,6 +28,12 @@ pub fn build(b: *std.Build) void {
     });
     exe.root_module.addImport("sqlite", sqlite.module("sqlite"));
 
+    const uuid = b.dependency("uuid", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("uuid", uuid.module("uuid"));
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
