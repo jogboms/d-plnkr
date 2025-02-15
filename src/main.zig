@@ -42,6 +42,15 @@ pub fn main() anyerror!void {
     defer db.deinit();
 
     try db.exec("create table if not exists schema_version(version integer primary key)", .{}, .{});
+
+    const versionRow = try db.one(usize, "select version from schema_version limit 1", .{}, .{});
+    if (versionRow) |version| {
+        if (schemaVersion > version) {
+            // TODO: do migrations
+        }
+    } else {
+        try db.exec("insert into schema_version(version) values(?)", .{}, .{schemaVersion});
+    }
 }
 
 fn isEnabledFromEnv(allocator: std.mem.Allocator, key: []const u8) anyerror!bool {
