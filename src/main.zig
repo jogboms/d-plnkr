@@ -33,6 +33,15 @@ pub fn main() anyerror!void {
 
     const dbPath = try std.mem.Allocator.dupeZ(allocator, u8, dbFilePath);
     defer allocator.free(dbPath);
+
+    var db = try sqlite.Db.init(.{
+        .mode = sqlite.Db.Mode{ .File = dbPath },
+        .open_flags = .{ .write = true, .create = true },
+        .threading_mode = .MultiThread,
+    });
+    defer db.deinit();
+
+    try db.exec("create table if not exists schema_version(version integer primary key)", .{}, .{});
 }
 
 fn isEnabledFromEnv(allocator: std.mem.Allocator, key: []const u8) anyerror!bool {
