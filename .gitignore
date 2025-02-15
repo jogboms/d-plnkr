@@ -5,3 +5,5 @@ zig-out/
 ### IntelliJ template
 .idea/
 *.iml
+
+default.db
