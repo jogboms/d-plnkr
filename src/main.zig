@@ -54,8 +54,7 @@ pub fn main() !void {
 }
 
 fn deriveDbFilePath(allocator: std.mem.Allocator) ![]const u8 {
-    const isProduction = try isEnabledFromEnv(allocator, "PROD");
-    return if (isProduction) block: {
+    const path = if (try isEnabledFromEnv(allocator, "PROD")) blk: {
         const homeDir = fromEnv(allocator, "HOME") catch @panic("Could not find $HOME environment variable");
         defer allocator.free(homeDir);
 
@@ -67,8 +66,10 @@ fn deriveDbFilePath(allocator: std.mem.Allocator) ![]const u8 {
             else => std.debug.panic("Unhandle error: {any}", .{e}),
         };
 
-        break :block try std.fs.path.join(allocator, &[_][]const u8{ dbDir, dbName });
-    } else try std.fs.path.join(allocator, &[_][]const u8{ ".", dbName });
+        break :blk dbDir;
+    } else ".";
+
+    return try std.fs.path.join(allocator, &[_][]const u8{ path, dbName });
 }
 
 fn setupSchema(db: *sqlite.Db) !void {
